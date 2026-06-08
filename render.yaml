@@ -1,0 +1,29 @@
+# Render.com tek tık dağıtım (Blueprint). https://render.com → New → Blueprint
+# Hem sunucu (Socket.io) hem de arayüz aynı anda kurulur.
+services:
+  # 1) Sunucu — sürekli açık Node + Socket.io servisi
+  - type: web
+    name: tasa-cocuk-server
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /api/health
+
+  # 2) Arayüz — React (statik) site
+  - type: web
+    runtime: static
+    name: tasa-cocuk-client
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Sunucu yayınlandıktan sonra onun URL'sini buraya yaz
+      # (ör. https://tasa-cocuk-server.onrender.com). Render panelinden de girilebilir.
+      - key: VITE_SERVER_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
