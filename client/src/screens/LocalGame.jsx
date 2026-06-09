@@ -28,7 +28,8 @@ export default function LocalGame({ state, session, onLeave, setToast }) {
   if (!meta) return <Center>Yükleniyor…</Center>;
 
   // ---- OYUN SONU ----
-  if (phase === "ended") return <EndScreen state={state} g={g} onLeave={onLeave} />;
+  if (phase === "ended") return <EndScreen state={state} g={g} onLeave={onLeave}
+    onNewGame={() => socket.emit("returnToLobby", { code, playerId: session.playerId })} />;
 
   // gece aksiyonu olan canlı oyuncular (köylüler uyur, atlanır)
   const nightActors = lp.filter((p) => p.alive && meta.roles[p.roleId]?.night);
@@ -66,12 +67,15 @@ export default function LocalGame({ state, session, onLeave, setToast }) {
     }
     const actor = nightActors[actorIdx];
     const fresh = lp.find((x) => x.id === actor.id); // güncel info
+    const wolfmates = fresh.role.team === "wolf"
+      ? lp.filter((p) => p.role.team === "wolf").map((p) => ({ name: p.name, role: p.role.name, alive: p.alive }))
+      : null;
     return (
       <Shell phase={phase} g={g} onLeave={onLeave} title={`🌙 Gece ${g.dayNumber}`}>
         {!handed ? (
           <PassScreen name={actor.name} note="Sıra sende — gizli yeteneğini kullan" onReady={() => setHanded(true)} />
         ) : (
-          <NightAct player={fresh} meta={meta} aliveNames={aliveNames} code={code} session={session}
+          <NightAct player={fresh} meta={meta} aliveNames={aliveNames} wolfmates={wolfmates} code={code} session={session}
             onDone={() => { setHanded(false); setActorIdx(actorIdx + 1); }} setToast={setToast} />
         )}
         <p className="text-center text-xs text-slate-400 mt-4">Gece sırası: {actorIdx + 1} / {nightActors.length}</p>
@@ -213,7 +217,7 @@ function NamesGrid({ names, selected, onPick, max = 1 }) {
   );
 }
 
-function NightAct({ player, meta, aliveNames, code, session, onDone, setToast }) {
+function NightAct({ player, meta, aliveNames, wolfmates, code, session, onDone, setToast }) {
   const night = meta.roles[player.roleId].night;
   const [sel, setSel] = useState([]);
   const [mode, setMode] = useState(null);
@@ -246,6 +250,11 @@ function NightAct({ player, meta, aliveNames, code, session, onDone, setToast })
         <h3 className="font-black text-lg">{player.role.name}</h3>
         <p className="text-sm opacity-80">{night.label}</p>
       </div>
+      {wolfmates && wolfmates.length > 0 && (
+        <div className="mb-2 px-3 py-2 rounded-xl bg-red-500/15 border border-red-400/40 text-sm text-center">
+          🐺 <b>Kurt ekibin:</b> {wolfmates.map((w) => `${w.name}${w.alive ? "" : " 💀"} (${w.role})`).join(", ")}
+        </div>
+      )}
       {need > 0 && <NamesGrid names={targets} selected={sel} onPick={pick} max={need} />}
 
       <div className="flex flex-wrap gap-2 justify-center">
@@ -312,7 +321,7 @@ function AlivePanel({ lp }) {
   );
 }
 
-function EndScreen({ state, g, onLeave }) {
+function EndScreen({ state, g, onLeave, onNewGame }) {
   const lp = state.local?.players || state.players;
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#1e1b4b,_#020617)] text-white p-5">
@@ -333,7 +342,8 @@ function EndScreen({ state, g, onLeave }) {
             </div>
           ))}
         </div>
-        <button onClick={onLeave} className="mt-6 w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold">🏠 Ana menü</button>
+        <button onClick={onNewGame} className="mt-6 w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold">🔄 Yeni Oyun (Aynı oyuncularla)</button>
+        <button onClick={onLeave} className="mt-2 w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 font-bold">🏠 Ana menü</button>
       </div>
     </div>
   );

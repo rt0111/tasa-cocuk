@@ -43,8 +43,16 @@ export default function Game({ state, session, chat, onLeave, setToast }) {
               {phase === "ended" && "🏁 Oyun Bitti"}
             </h1>
           </div>
-          {g?.phaseEndsAt && phase !== "ended" && <Timer endsAt={g.phaseEndsAt} />}
+          {phase !== "ended" && (g?.paused
+            ? <div className="font-bold text-amber-300 animate-pulse">⏸ Duraklatıldı</div>
+            : g?.phaseEndsAt && <Timer endsAt={g.phaseEndsAt} />)}
           <div className="flex gap-1.5">
+            {you?.isAdmin && phase !== "ended" && (
+              <button onClick={() => socket.emit("pauseToggle", { code: state.code, playerId: session.playerId })}
+                className="text-xs px-2.5 py-1.5 rounded-lg bg-black/20 hover:bg-black/30" title="Süreyi durdur/devam ettir">
+                {g?.paused ? "▶️" : "⏸️"}
+              </button>
+            )}
             <button onClick={() => setShowLog((s) => !s)} className="text-xs px-2.5 py-1.5 rounded-lg bg-black/20 hover:bg-black/30">📜</button>
             <button onClick={onLeave} className="text-xs px-2.5 py-1.5 rounded-lg bg-black/20 hover:bg-black/30">Çık</button>
           </div>
@@ -71,7 +79,7 @@ export default function Game({ state, session, chat, onLeave, setToast }) {
 
         {/* FAZ İÇERİĞİ */}
         {phase === "ended" ? (
-          <EndScreen state={state} session={session} meta={meta} />
+          <EndScreen state={state} session={session} meta={meta} you={you} send={send} />
         ) : (
           <div className="grid lg:grid-cols-3 gap-4 mt-2">
             <div className="lg:col-span-2 space-y-4">
@@ -189,6 +197,11 @@ function NightPanel({ state, you, me, meta, send, setToast }) {
 
   return (
     <Panel title={`🌙 Gece — ${you.role.name}`}>
+      {you.role.team === "wolf" && g?.wolfmates?.length > 0 && (
+        <div className="mb-3 px-3 py-2 rounded-xl bg-red-500/15 border border-red-400/40 text-sm">
+          🐺 <b>Kurt ekibin:</b> {g.wolfmates.map((w) => `${w.name}${w.alive ? "" : " 💀"} (${w.role})`).join(", ")}
+        </div>
+      )}
       <p className="text-sm mb-2 opacity-90">{night.label}</p>
       <PlayerGrid players={targets} meId={you.id} selectable selected={sel} onSelect={pick} />
 
@@ -304,13 +317,19 @@ function VotePanel({ state, you, session, meta, send }) {
 }
 
 /* ----------------- OYUN SONU ----------------- */
-function EndScreen({ state, session, meta }) {
+function EndScreen({ state, session, meta, you, send }) {
   const g = state.game;
   return (
     <div className="mt-4 space-y-4">
       <div className="rounded-2xl p-6 bg-black/30 text-center animate-pop">
         <div className="text-5xl mb-2">🏆</div>
         <h2 className="text-2xl font-black">{g?.winnerText || "Oyun bitti"}</h2>
+        {you?.isAdmin && (
+          <button onClick={() => send("returnToLobby", {})}
+            className="mt-4 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold">
+            🔄 Yeni Oyun (Lobiye Dön)
+          </button>
+        )}
       </div>
       <div className="bg-black/20 rounded-2xl p-4">
         <h3 className="font-bold mb-2">Roller</h3>

@@ -55,10 +55,10 @@ export default function Lobby({ state, session, chat, onLeave, setToast }) {
     navigator.clipboard?.writeText(state.code).then(() => setToast("Kod kopyalandı!"));
   }
 
-  const valid = selected.length > 0 && playingCount >= 3 && threatCount > 0;
+  const valid = selected.length > 0 && playingCount >= 3 && wolfCount > 0;
   const reason = playingCount < 3 ? "En az 3 oyuncu gerekli."
     : selected.length === 0 ? "En az bir rol seç."
-    : threatCount === 0 ? "En az bir Kurt veya Solo Katil seç." : null;
+    : wolfCount === 0 ? "Oyunda mutlaka en az bir Kurt Adam rolü olmalı." : null;
   const extraHidden = Math.max(0, selected.length - playingCount); // gizli kalacak rol sayısı
 
   return (

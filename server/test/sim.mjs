@@ -133,7 +133,73 @@ async function localTest() {
   host.close();
 }
 
+async function rulesTest() {
+  console.log("\n===== KURAL TESTLERİ (yerel god-view) =====");
+  let st = null;
+  const host = mk();
+  host.on("state", (s) => (st = s));
+  await wait(300);
+  const r = await ack(host, "createLocalRoom", { names: ["A", "B", "C", "D", "E"] });
+  const code = r.code, hostId = r.playerId;
+  await wait(150);
+  host.emit("setRoles", { code, playerId: hostId, selectedRoles: ["werewolf", "doctor", "serial_killer", "seer", "villager"] });
+  await wait(150);
+  await ack(host, "startGame", { code, playerId: hostId });
+  await wait(200);
+
+  const P = st.local.players;
+  const wolf = P.find((p) => p.roleId === "werewolf");
+  const doc = P.find((p) => p.roleId === "doctor");
+  const sk = P.find((p) => p.roleId === "serial_killer");
+  const others = P.filter((p) => !["werewolf", "doctor", "serial_killer"].includes(p.roleId));
+  console.log("#5 kurt garanti: oyunda kurt var mı?", !!wolf);
+  const A = others[0], B = others[1]; // A=kurt hedefi (doktor korur), B=seri katil hedefi
+
+  host.emit("nightAction", { code, playerId: wolf.id, targets: [A.id] });   // kurt A'ya saldırır
+  host.emit("nightAction", { code, playerId: doc.id, targets: [A.id] });    // doktor A'yı korur (kurttan)
+  host.emit("nightAction", { code, playerId: sk.id, targets: [B.id] });     // seri katil B'yi öldürür
+  await wait(150);
+  host.emit("hostControl", { code, playerId: hostId, action: "resolveNight" });
+  await wait(300);
+
+  const aAlive = st.local.players.find((p) => p.id === A.id).alive;
+  const bAlive = st.local.players.find((p) => p.id === B.id).alive;
+  console.log(`#6 doktor KURDU engelledi (A yaşamalı): A.alive=${aAlive} ${aAlive ? "✓" : "✗"}`);
+  console.log(`#6 doktor seri katili engelleyemedi (B ölmeli): B.alive=${bAlive} ${!bAlive ? "✓" : "✗"}`);
+
+  // #3 yeni oyun: lobiye dön
+  host.emit("returnToLobby", { code, playerId: hostId });
+  await wait(200);
+  console.log(`#3 yeni oyun: faz=${st.phase} (lobby beklenir) ${st.phase === "lobby" ? "✓" : "✗"}, roller sıfır: ${st.players.every((p) => !p.role)}`);
+  host.close();
+}
+
+async function pauseTest() {
+  console.log("\n===== #2 SÜRE DURAKLATMA (online) =====");
+  let sa = null; const admin = mk(); admin.on("state", (s) => (sa = s));
+  const b = mk(), c = mk();
+  await wait(300);
+  const r = await ack(admin, "createRoom", { name: "Admin" });
+  const code = r.code, adminId = r.playerId;
+  await ack(b, "joinRoom", { code, name: "B" });
+  await ack(c, "joinRoom", { code, name: "C" });
+  admin.emit("setSettings", { code, playerId: adminId, settings: { nightDuration: 60 } });
+  admin.emit("setRoles", { code, playerId: adminId, selectedRoles: ["werewolf", "seer"] });
+  await wait(200);
+  await ack(admin, "startGame", { code, playerId: adminId });
+  await wait(200);
+  admin.emit("pauseToggle", { code, playerId: adminId });
+  await wait(150);
+  console.log(`duraklat: paused=${sa.game?.paused} ${sa.game?.paused ? "✓" : "✗"}, phaseEndsAt=${sa.game?.phaseEndsAt}`);
+  admin.emit("pauseToggle", { code, playerId: adminId });
+  await wait(150);
+  console.log(`devam: paused=${sa.game?.paused} ${!sa.game?.paused ? "✓" : "✗"}, phaseEndsAt var mı=${!!sa.game?.phaseEndsAt}`);
+  [admin, b, c].forEach((s) => s.close());
+}
+
 await onlineTest();
 await localTest();
+await rulesTest();
+await pauseTest();
 console.log("\n✅ Tüm simülasyonlar tamamlandı.");
 process.exit(0);

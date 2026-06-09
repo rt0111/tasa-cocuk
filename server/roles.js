@@ -79,8 +79,8 @@ export const ROLES = {
   },
   gunner: {
     id: "gunner", name: "Silahlı Köylü", team: "village", aura: "good",
-    desc: "Gündüz ateş edip bir oyuncuyu vurabilirsin (2 mermi). Yanlış vurursan köye zarar verir.",
-    day: { targets: 1, label: "Vurmak istediğin kişiyi seç" }, limit: { shoot: 2 },
+    desc: "Gece bir oyuncuyu vurabilirsin (2 mermi). Yanlış vurursan köye zarar verir.",
+    night: { targets: 1, label: "Vurmak istediğin kişiyi seç", priority: "kill" }, limit: { shoot: 2 },
   },
   marksman: {
     id: "marksman", name: "Keskin Nişancı", team: "village", aura: "good",
@@ -94,8 +94,8 @@ export const ROLES = {
   },
   flower_child: {
     id: "flower_child", name: "Çiçek Çocuk", team: "village", aura: "good",
-    desc: "Bir kişinin asılmasını (linç) engelleyebilirsin (sınırlı: 1 kez).",
-    day: { targets: 1, label: "Linçten korumak istediğin kişiyi seç", lynchBlock: true }, limit: { save: 1 },
+    desc: "Gece seçtiğin kişi ertesi gün linç edilemez (sınırlı: 1 kez).",
+    night: { targets: 1, label: "Ertesi gün linçten koruyacağın kişiyi seç", priority: "protect", lynchGuard: true }, limit: { save: 1 },
   },
   pacifist: {
     id: "pacifist", name: "Barışçıl", team: "village", aura: "good",

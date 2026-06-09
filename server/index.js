@@ -11,6 +11,7 @@ import { ROLES, ROLE_GROUPS, TEAMS, publicRoleInfo } from "./roles.js";
 import {
   startGame, validateRoleCounts, submitNightAction, submitDayAction,
   castVote, broadcastState, personalState, hostControl,
+  togglePause, returnToLobby,
 } from "./game.js";
 import { getRole } from "./roles.js";
 
@@ -148,6 +149,20 @@ io.on("connection", (socket) => {
     const room = getRoom(code);
     if (!room || !isAdmin(room, playerId)) return;
     hostControl(io, room, action);
+  });
+
+  // ---- SÜREYİ DURDUR/DEVAM (admin, online) ----
+  socket.on("pauseToggle", ({ code, playerId }) => {
+    const room = getRoom(code);
+    if (!room || !isAdmin(room, playerId)) return;
+    togglePause(io, room);
+  });
+
+  // ---- YENİ OYUN / LOBİYE DÖN (admin/host) ----
+  socket.on("returnToLobby", ({ code, playerId }) => {
+    const room = getRoom(code);
+    if (!room || !isAdmin(room, playerId)) return;
+    returnToLobby(io, room);
   });
 
   // ---- LOBİ: AYARLAR ----

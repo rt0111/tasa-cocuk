@@ -103,6 +103,7 @@ export function personalState(room, viewer) {
       winner: g.winner || null,
       winnerText: g.winnerText || null,
       awaitingNext: !!g.awaitingNext,
+      paused: !!g.paused,
     } : null,
     adminId: room.adminId,
   };
@@ -120,19 +121,35 @@ function publicFlags(p) {
 // (kimse hangi rollerin dışarıda kaldığını bilmez → meta oluşmaz, tahmin zorlaşır).
 // Seçili rol oyuncudan azsa kalan slotlar Köylü ile dolar. En az bir tehdit garanti.
 const isThreat = (id) => ["wolf", "solo_kill"].includes(getRole(id)?.team);
+const isWolf = (id) => getRole(id)?.team === "wolf";
 
 export function validateRoleCounts(room) {
   const playingCount = [...room.players.values()].filter(
     (p) => !(p.isAdmin && !room.settings.adminPlays && room.mode !== "local")
   ).length;
   const selected = room.selectedRoles || [];
-  const hasThreat = selected.some(isThreat);
-  const ok = selected.length > 0 && playingCount >= 3 && hasThreat;
+  const hasWolf = selected.some(isWolf); // oyunda mutlaka kurt olmalı
+  const ok = selected.length > 0 && playingCount >= 3 && hasWolf;
   let reason = null;
   if (playingCount < 3) reason = "En az 3 oyuncu gerekli.";
   else if (selected.length === 0) reason = "En az bir rol seç.";
-  else if (!hasThreat) reason = "En az bir tehdit rolü (Kurt veya Solo Katil) seçmelisin.";
-  return { total: selected.length, playerCount: playingCount, ok, reason, hasThreat };
+  else if (!hasWolf) reason = "Oyunda mutlaka en az bir Kurt Adam rolü olmalı (Kurt takımından bir rol seç).";
+  return { total: selected.length, playerCount: playingCount, ok, reason, hasWolf };
+}
+
+// Çekilen rol setinde en az 1 kurt garanti et; birden çok kurt varsa taban
+// "Kurt Adam" (werewolf) önce gelsin.
+function ensureWolfInChosen(chosen, selectedWolves) {
+  if (!selectedWolves.length) return;
+  const wolfSlots = chosen.map((r, i) => (isWolf(r) ? i : -1)).filter((i) => i >= 0);
+  const pickWolf = () => selectedWolves.includes("werewolf") ? "werewolf" : selectedWolves[Math.floor(Math.random() * selectedWolves.length)];
+  if (wolfSlots.length === 0) {
+    // hiç kurt çekilmediyse rastgele bir slotu kurt yap (taban werewolf öncelikli)
+    chosen[Math.floor(Math.random() * chosen.length)] = pickWolf();
+  } else if (selectedWolves.includes("werewolf") && !wolfSlots.some((i) => chosen[i] === "werewolf")) {
+    // kurtlar var ama taban werewolf yoksa bir kurt slotunu werewolf yap
+    chosen[wolfSlots[0]] = "werewolf";
+  }
 }
 
 export function startGame(io, room) {
@@ -155,12 +172,8 @@ export function startGame(io, room) {
   while (pool.length < playing.length) pool.push("villager");
   // oyuncu sayısı kadarını çek; fazlası gizli kalır
   let chosen = pool.slice(0, playing.length);
-  // en az bir tehdit garanti et (seçilenlerde tehdit varsa ama çekilenlerde yoksa)
-  const selectedThreats = (room.selectedRoles || []).filter(isThreat);
-  if (selectedThreats.length && !chosen.some(isThreat)) {
-    const slot = Math.floor(Math.random() * chosen.length);
-    chosen[slot] = selectedThreats[Math.floor(Math.random() * selectedThreats.length)];
-  }
+  // en az bir KURT garanti et (taban werewolf öncelikli)
+  ensureWolfInChosen(chosen, (room.selectedRoles || []).filter(isWolf));
   pool = chosen;
   shuffle(pool);
   shuffle(playing);
@@ -280,11 +293,19 @@ export function resolveNight(io, room) {
     const r = getRole(p.roleId);
     const a = actions[p.id];
     if (!a?.targets?.length) continue;
-    if (r.night?.priority === "protect") {
-      const t = a.targets[0];
-      (protectedBy[t] ||= []).push({ id: p.id, role: r.id });
-      if (r.id === "doctor" && t === p.id) p.uses.selfHeal = (p.uses.selfHeal || 0) + 1;
+    if (r.night?.priority !== "protect") continue;
+    const t = a.targets[0];
+    // Çiçek Çocuk: gece seçer, ertesi gün linçten korur (koruma listesine girmez)
+    if (r.id === "flower_child") {
+      if ((p.uses.save || 0) < 1) { g.lynchProtected = t; p.uses.save = 1; priv(p.id, "🌸 Seçtiğin kişi ertesi gün linç edilemez."); }
+      continue;
     }
+    // Doktor: kendini en fazla 1 kez koruyabilir
+    if (r.id === "doctor" && t === p.id) {
+      if ((p.uses.selfHeal || 0) >= 1) continue;
+      p.uses.selfHeal = 1;
+    }
+    (protectedBy[t] ||= []).push({ id: p.id, role: r.id });
   }
 
   // ---- 3) BİLGİ ROLLERİ: anında hesaplandı (computeInstantInfo) ----
@@ -352,36 +373,51 @@ export function resolveNight(io, room) {
         if (a.extra?.poison && (p.uses.poison || 0) < 1) { deaths.set(t, { by: p.id, type: "poison" }); p.uses.poison = 1; }
         break;
       }
+      case "gunner": {
+        if ((p.uses.shoot || 0) < 2) { deaths.set(t, { by: p.id, type: "gunner" }); p.uses.shoot = (p.uses.shoot || 0) + 1; priv(p.id, "🔫 Ateş ettin."); }
+        break;
+      }
     }
   }
 
   // ---- 5) KURTARMA (korumalar öldürmeyi iptal eder) ----
+  // Korumaların durdurabileceği "saldırı" türleri (poison/smite/infaz/corrupt bypass eder).
+  const STOPPABLE = new Set(["wolf", "serial", "gunner", "marksman", "bomb", "burn", "cannibal", "bandit", "junior"]);
   for (const [victimId, info] of [...deaths.entries()]) {
-    // Seri Katil kurt saldırısından etkilenmez
     const victim = playerById(room, victimId);
     if (!victim) { deaths.delete(victimId); continue; }
+    // Seri Katil kurt saldırısından etkilenmez
     if (info.type === "wolf" && getRole(victim.roleId)?.wolfImmune) { deaths.delete(victimId); continue; }
 
     const prot = protectedBy[victimId] || [];
-    // Cadı can iksiri
-    const healer = aliveWitchHealing(room, victimId);
+    const has = (role) => prot.some((x) => x.role === role);
+    const healer = aliveWitchHealing(room, victimId); // Cadı can iksiri her saldırıyı kurtarır
     let saved = false;
-    if (info.type !== "jail_execute" && info.type !== "corrupt" && info.type !== "poison" && info.type !== "smite") {
-      if (prot.length && !(info.pierce)) saved = true; // alfa pierce korumayı aşar
-      if (info.pierce && prot.some((x) => x.role === "bodyguard")) saved = false; // alfa korumayı aşar ama bodyguard yine de canıyla öder (aşağıda)
+
+    if (STOPPABLE.has(info.type)) {
+      // DOKTOR: yalnızca KURT saldırısından korur, başka hiçbir şeyden değil
+      const doctorSave = has("doctor") && info.type === "wolf" && !info.pierce;
+      // Koruyucu Kurt: kurt takımını saldırıdan korur (alfa pierce hariç)
+      const guardSave = has("guardian_wolf") && !info.pierce;
+      // Koruma: her saldırıda araya girer (canıyla öder)
+      const bodyguardSave = has("bodyguard");
+      // Sert Adam: koruduğu kişi saldırıya uğrarsa öğrenir + ertesi gece ölür
+      const toughSave = has("tough_guy");
+      if (doctorSave || guardSave || bodyguardSave || toughSave) saved = true;
     }
     if (healer) saved = true;
+
     if (saved) {
       deaths.delete(victimId);
       priv(victimId, "🛡️ Bu gece bir saldırıdan korundun!");
-      // bodyguard yerine ölür
-      const bg = prot.find((x) => x.role === "bodyguard");
-      if (bg && (info.type === "wolf" || info.type === "serial" || info.type === "alpha")) {
+      // Koruma yerine ölür
+      if (has("bodyguard")) {
+        const bg = prot.find((x) => x.role === "bodyguard");
         deaths.set(bg.id, { by: info.by, type: "bodyguard_sacrifice" });
       }
-      // tough guy: saldıranın rolünü öğrenir, ertesi gece ölür
-      const tg = prot.find((x) => x.role === "tough_guy");
-      if (tg) {
+      // Sert Adam: saldıranın rolünü öğrenir, ertesi gece ölür
+      if (has("tough_guy")) {
+        const tg = prot.find((x) => x.role === "tough_guy");
         const attacker = playerById(room, info.by);
         if (attacker) priv(tg.id, `🥊 Saldıranın rolü: ${ROLES[attacker.roleId]?.name || "bilinmiyor"}`);
         const tgp = playerById(room, tg.id); if (tgp) tgp.flags.diesNextNight = true;
@@ -715,6 +751,44 @@ function computeInstantInfo(room, p, targets, extra) {
   }
 }
 
+// ---- SÜREYİ DURDUR / DEVAM ETTİR (admin, online mod) ----
+export function togglePause(io, room) {
+  const g = room.game;
+  if (!g || room.manual || !["night", "day", "vote"].includes(g.phase)) return;
+  if (g.paused) {
+    const remain = Math.max(1, Math.ceil((g.pausedRemaining || 0) / 1000));
+    g.paused = false;
+    const cb = g.phase === "night" ? () => resolveNight(io, room)
+      : g.phase === "day" ? () => startVote(io, room)
+      : () => resolveVote(io, room);
+    setPhaseTimer(io, room, remain, cb);
+    logEvent(room, "▶️ Süre devam ettirildi.");
+  } else {
+    if (!g.timer) return;
+    clearTimeout(g.timer); g.timer = null;
+    g.pausedRemaining = (g.phaseEndsAt || Date.now()) - Date.now();
+    g.paused = true;
+    g.phaseEndsAt = null;
+    logEvent(room, "⏸️ Süre duraklatıldı.");
+  }
+  broadcastState(io, room);
+}
+
+// ---- LOBİYE DÖN / YENİ OYUN (admin/host) ----
+export function returnToLobby(io, room) {
+  clearTimer(room);
+  room.phase = "lobby";
+  room.game = null;
+  room.log = [];
+  room.chat = [];
+  room.deadChat = [];
+  for (const p of room.players.values()) {
+    p.alive = true; p.isGhost = false; p.roleId = null;
+    p.flags = {}; p.uses = {}; p.isSpectator = false;
+  }
+  broadcastState(io, room);
+}
+
 // ---- HOST KONTROL (yerel/manuel mod faz ilerletme) ----
 export function hostControl(io, room, action) {
   if (!room.manual || !room.game) return;
@@ -734,17 +808,9 @@ export function submitDayAction(io, room, playerId, { targets, extra }) {
   if (!p?.alive) return;
   const r = getRole(p.roleId);
 
-  // gündüz/oylama özel yetenekleri
-  if (r.id === "gunner" && g.phase === "day") {
-    if ((p.uses.shoot || 0) >= 2) return;
-    const t = playerById(room, targets?.[0]);
-    if (t?.alive) { p.uses.shoot = (p.uses.shoot || 0) + 1; killPlayer(room, t);
-      g.announcement = `🔫 ${p.name} ateş etti, ${t.name} vuruldu.`;
-      logEvent(room, `${p.name} (Silahlı Köylü) ${t.name} kişisini vurdu.`);
-      broadcastState(io, room); checkWin(io, room); }
-  }
-  if (r.id === "flower_child" && (p.uses.save || 0) < 1) { p.uses.save = 1; g.lynchProtected = targets?.[0]; }
-  if (r.id === "pacifist" && g.phase === "vote" && (p.uses.stop || 0) < 1) { p.uses.stop = 1; g.voteStopped = true; }
+  // Yalnızca OYLAMA fazındaki oy-gücü yetenekleri (gündüz seçim yok; gece yapılır).
+  if (g.phase !== "vote") return;
+  if (r.id === "pacifist" && (p.uses.stop || 0) < 1) { p.uses.stop = 1; g.voteStopped = true; }
   if (r.id === "manipulator" && (p.uses.boost || 0) < 1) { p.uses.boost = 1; g.boostedVoter = targets?.[0]; }
   broadcastState(io, room);
 }
