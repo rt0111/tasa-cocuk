@@ -197,9 +197,41 @@ async function pauseTest() {
   [admin, b, c].forEach((s) => s.close());
 }
 
+async function wolfPackTest() {
+  console.log("\n===== KURTLAR BİRBİRİNİ ÖLDÜREMEZ =====");
+  let st = null; const host = mk(); host.on("state", (s) => (st = s));
+  await wait(300);
+  const r = await ack(host, "createLocalRoom", { names: ["A", "B", "C", "D", "E"] });
+  const code = r.code, hostId = r.playerId;
+  await wait(150);
+  host.emit("setRoles", { code, playerId: hostId, selectedRoles: ["werewolf", "alpha_wolf", "seer", "doctor", "villager"] });
+  await wait(150);
+  await ack(host, "startGame", { code, playerId: hostId });
+  await wait(200);
+  const P = st.local.players;
+  const w1 = P.find((p) => p.roleId === "werewolf");
+  const w2 = P.find((p) => p.roleId === "alpha_wolf");
+  // w1, takım arkadaşı w2'yi hedef almaya çalışır -> reddedilmeli
+  host.emit("nightAction", { code, playerId: w1.id, targets: [w2.id] });
+  await wait(150);
+  const info = st.local.players.find((p) => p.id === w1.id).info;
+  console.log("kurt, kurdu hedef aldı -> uyarı:", info, info?.[0]?.includes("arkadaş") ? "✓ engellendi" : "✗");
+  // doğru hedef: bir köylü
+  const villager = P.find((p) => p.roleId === "villager");
+  host.emit("nightAction", { code, playerId: w1.id, targets: [villager.id] });
+  host.emit("nightAction", { code, playerId: w2.id, targets: [villager.id] });
+  await wait(100);
+  host.emit("hostControl", { code, playerId: hostId, action: "resolveNight" });
+  await wait(300);
+  const w2Alive = st.local.players.find((p) => p.id === w2.id).alive;
+  console.log("kurt takım arkadaşı (w2) hayatta mı:", w2Alive, w2Alive ? "✓" : "✗");
+  host.close();
+}
+
 await onlineTest();
 await localTest();
 await rulesTest();
+await wolfPackTest();
 await pauseTest();
 console.log("\n✅ Tüm simülasyonlar tamamlandı.");
 process.exit(0);

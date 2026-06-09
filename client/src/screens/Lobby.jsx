@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { socket, emitAck, SERVER_URL } from "../socket.js";
 import Chat from "../components/Chat.jsx";
+import Rules from "../components/Rules.jsx";
 import { icon, TEAM_META } from "../roleIcons.js";
 
 const TEAM_RING = {
@@ -12,6 +13,7 @@ const TEAM_RING = {
 
 export default function Lobby({ state, session, chat, onLeave, setToast }) {
   const [meta, setMeta] = useState(null);
+  const [showRules, setShowRules] = useState(false);
   const isLocal = state.mode === "local";
   const isAdmin = state.adminId === session.playerId;
   const selected = state.selectedRoles || [];
@@ -75,8 +77,12 @@ export default function Lobby({ state, session, chat, onLeave, setToast }) {
               <p className="text-emerald-300/80 text-sm">Telefonu elden ele dolaştırarak oynanır.</p>
             )}
           </div>
-          <button onClick={onLeave} className="text-sm px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20">Çık</button>
+          <div className="flex gap-1.5">
+            <button onClick={() => setShowRules(true)} className="text-sm px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20">📜 Kurallar</button>
+            <button onClick={onLeave} className="text-sm px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20">Çık</button>
+          </div>
         </div>
+        {showRules && <Rules onClose={() => setShowRules(false)} />}
 
         <div className="grid md:grid-cols-3 gap-4">
           {/* oyuncular */}

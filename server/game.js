@@ -300,6 +300,12 @@ export function resolveNight(io, room) {
       if ((p.uses.save || 0) < 1) { g.lynchProtected = t; p.uses.save = 1; priv(p.id, "🌸 Seçtiğin kişi ertesi gün linç edilemez."); }
       continue;
     }
+    // Doktor & Koruma: aynı kişiyi üst üste iki gece koruyamaz
+    if (r.id === "doctor" || r.id === "bodyguard") {
+      const key = r.id === "doctor" ? "lastProtect" : "lastGuard";
+      if (t === p.flags[key]) { priv(p.id, "⚠️ Aynı kişiyi üst üste iki gece koruyamazsın, koruma boşa gitti."); p.flags[key] = null; continue; }
+      p.flags[key] = t;
+    }
     // Doktor: kendini en fazla 1 kez koruyabilir
     if (r.id === "doctor" && t === p.id) {
       if ((p.uses.selfHeal || 0) >= 1) continue;
@@ -686,6 +692,21 @@ export function submitNightAction(io, room, playerId, { targets, extra }) {
   const r = getRole(p.roleId);
   if (!r?.night) return;
   if (p.flags.jailed) return; // hapisteyse aksiyon yok
+
+  // HEDEF KISITLARI (boş hedef = pas, serbest)
+  const tps = (targets || []).map((id) => playerById(room, id)).filter(Boolean);
+  if (tps.length) {
+    // Kurtlar takım arkadaşını hedef alamaz (öldürme VE araştırma)
+    if (r.team === "wolf" && tps.some((t) => getRole(t.roleId)?.team === "wolf")) {
+      g.privateInfo[playerId] = ["⚠️ Kurt takım arkadaşını hedef alamazsın."];
+      broadcastState(io, room); return;
+    }
+    // Kahin kendine bakamaz
+    if ((r.id === "seer" || r.id === "wolf_seer") && targets.includes(playerId)) {
+      g.privateInfo[playerId] = ["⚠️ Kendine bakamazsın."];
+      broadcastState(io, room); return;
+    }
+  }
 
   g.nightActions[playerId] = { targets: targets || [], extra: extra || {} };
   // kurt ortak hedefi

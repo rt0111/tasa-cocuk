@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { emitAck } from "../socket.js";
+import Rules from "../components/Rules.jsx";
 
 export default function Home({ onJoined, setToast }) {
   const [screen, setScreen] = useState("mode"); // mode | online | local
+  const [showRules, setShowRules] = useState(false);
   const [mode, setMode] = useState(null);       // create | join
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -110,7 +112,11 @@ export default function Home({ onJoined, setToast }) {
           </div>
         )}
       </div>
-      <p className="text-slate-500 text-xs mt-6">Türkçe · Mobil uyumlu</p>
+      <button onClick={() => setShowRules(true)} className="mt-5 text-sm text-indigo-300 hover:text-white underline underline-offset-4">
+        📜 Oyun Kuralları
+      </button>
+      <p className="text-slate-500 text-xs mt-3">Türkçe · Mobil uyumlu</p>
+      {showRules && <Rules onClose={() => setShowRules(false)} />}
     </div>
   );
 }

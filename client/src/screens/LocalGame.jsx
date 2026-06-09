@@ -70,12 +70,20 @@ export default function LocalGame({ state, session, onLeave, setToast }) {
     const wolfmates = fresh.role.team === "wolf"
       ? lp.filter((p) => p.role.team === "wolf").map((p) => ({ name: p.name, role: p.role.name, alive: p.alive }))
       : null;
+    // geçerli hedefler: kurt takım arkadaşını, kahin kendini seçemez
+    let targetNames = aliveNames;
+    if (fresh.role.team === "wolf") {
+      const mateIds = new Set(lp.filter((p) => p.role.team === "wolf").map((p) => p.id));
+      targetNames = aliveNames.filter((a) => !mateIds.has(a.id));
+    } else if (fresh.roleId === "seer") {
+      targetNames = aliveNames.filter((a) => a.id !== fresh.id);
+    }
     return (
       <Shell phase={phase} g={g} onLeave={onLeave} title={`🌙 Gece ${g.dayNumber}`}>
         {!handed ? (
           <PassScreen name={actor.name} note="Sıra sende — gizli yeteneğini kullan" onReady={() => setHanded(true)} />
         ) : (
-          <NightAct player={fresh} meta={meta} aliveNames={aliveNames} wolfmates={wolfmates} code={code} session={session}
+          <NightAct player={fresh} meta={meta} aliveNames={targetNames} wolfmates={wolfmates} code={code} session={session}
             onDone={() => { setHanded(false); setActorIdx(actorIdx + 1); }} setToast={setToast} />
         )}
         <p className="text-center text-xs text-slate-400 mt-4">Gece sırası: {actorIdx + 1} / {nightActors.length}</p>

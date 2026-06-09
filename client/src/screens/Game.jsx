@@ -193,7 +193,14 @@ function NightPanel({ state, you, me, meta, send, setToast }) {
     setToast("Gece hamlen kaydedildi.");
   }
 
-  const targets = state.players; // canlı seçimi PlayerGrid hallediyor
+  // Geçerli hedefler: kurtlar takım arkadaşını, kahin kendini seçemez
+  let targets = state.players;
+  if (you.role.team === "wolf") {
+    const mateIds = new Set((g?.wolfmates || []).map((w) => w.id));
+    targets = targets.filter((p) => !mateIds.has(p.id));
+  } else if (you.role.id === "seer") {
+    targets = targets.filter((p) => p.id !== you.id);
+  }
 
   return (
     <Panel title={`🌙 Gece — ${you.role.name}`}>
